@@ -20,17 +20,13 @@ export default class JWT {
   }
 
   static createRefreshToken(userId): string {
-    const token = jwt.sign(
-      {
-        userId,
-        secretValue: `${new Date().getTime()}-${Math.random()}`,
-      },
-      this.refreshSecret,
-      {
-        expiresIn: this.refreshExpire,
-      },
-    );
-    return token;
+    const payload = {
+      userId,
+      value: Math.random() + new Date().getTime(),
+    };
+    return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
+      expiresIn: this.refreshExpire,
+    });
   }
 
   static verifyAccessToken(accessToken: string) {
@@ -41,11 +37,11 @@ export default class JWT {
     }
   }
 
-  static verifyRefreshToken(refreshToken: string): object | string {
+  static verifyRefreshToken(refreshToken: string) {
     try {
       return jwt.verify(refreshToken, this.refreshSecret);
-    } catch (error) {
-      throw new Error(`Invalid refresh token: ${error.message}`);
+    } catch {
+      return false;
     }
   }
 }

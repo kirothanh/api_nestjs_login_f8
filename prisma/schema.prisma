@@ -18,6 +18,7 @@ model User {
   name       String   @db.VarChar(50)
   email      String   @unique @db.VarChar(100)
   password   String   @db.VarChar(100)
+  role       Role     @default(USER)
   status     Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @default(now())
@@ -25,13 +26,7 @@ model User {
   @@map("users")
 }
 
-model Token {
-  id           Int      @id @default(autoincrement())
-  accessToken  String   @unique
-  refreshToken String   @unique
-  blacklist    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@map("tokens")
+enum Role {
+  USER
+  ADMIN
 }

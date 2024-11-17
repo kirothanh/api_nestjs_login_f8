@@ -1,23 +1,27 @@
 import { z } from 'zod';
-import { Controller, Post, Body, Res, HttpStatus, Headers } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Res,
+  HttpStatus,
+  Req,
+  Get,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { CreateUserAuthDto } from './dto/create-user-auth.dto';
-import { LoginAuthDto } from './dto/login-auth.dto';
-import { UsersService } from 'src/users/users.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginAuthDto } from './dto/login.dto';
 import Hash from 'src/utils/hashing';
 import JWT from 'src/utils/jwt';
-import { TokensService } from 'src/tokens/tokens.service';
+import { redis } from 'src/utils/redis';
+import { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly usersService: UsersService,
-    private readonly tokenService: TokensService,
-  ) { }
+  constructor(private readonly authService: AuthService) { }
 
   @Post('register')
-  async register(@Body() body: CreateUserAuthDto, @Res() res) {
+  async register(@Body() body: RegisterDto, @Res() res) {
     // Validate
     const schema = z.object({
       name: z
@@ -31,7 +35,7 @@ export class AuthController {
         })
         .email('Email không đúng định dạng')
         .refine(async (email) => {
-          const user = await this.usersService.findByEmail(email);
+          const user = await this.authService.getUserByField('email', email);
           return !user;
         }, 'Email đã có người sử dụng'),
       password: z
@@ -51,7 +55,10 @@ export class AuthController {
       });
     }
 
-    const data = await this.authService.register(body);
+    const data = await this.authService.register({
+      ...body,
+      role: 'USER',
+    });
     return res.status(HttpStatus.CREATED).json(data);
   }
 
@@ -84,7 +91,14 @@ export class AuthController {
     }
 
     // Truy vấn
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.authService.getUserByField('email', email);
+
+    if (!user) {
+      return res.status(HttpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Email hoặc mật khẩu không chính xác',
+      });
+    }
 
     if (!Hash.verify(password, user.password)) {
       return res.status(HttpStatus.UNAUTHORIZED).json({
@@ -94,14 +108,20 @@ export class AuthController {
 
     const accessToken = JWT.createAccessToken({
       userId: user.id,
+      role: user.role,
     });
-    const refreshToken = JWT.createAccessToken({
-      userId: user.id,
-    });
+    const refreshToken = JWT.createRefreshToken(user.id);
 
-    await this.tokenService.createToken(accessToken, refreshToken);
+    const redisStore = await redis;
+    await redisStore.set(
+      `refreshToken_${user.id}`,
+      JSON.stringify({
+        refreshToken,
+        email,
+      }),
+    );
 
-    return res.json({
+    return res.status(HttpStatus.CREATED).json({
       message: 'Login Successfully',
       data: {
         accessToken,
@@ -110,17 +130,55 @@ export class AuthController {
     });
   }
 
-  @Post('logout')
-  async logout(@Headers('authorization') authHeader: string, @Res() res) {
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new Error('No token provided');
-    }
-    const accessToken = authHeader.split(' ')[1];
-
-    await this.tokenService.blacklistToken(accessToken);
-
+  @Get('profile')
+  profile(@Req() req: any, @Res() res: Response) {
     return res.json({
-      message: 'Logout successfully',
+      success: true,
+      message: 'Get Profile Success',
+      data: req.user,
     });
+  }
+
+  @Post('logout')
+  async logout(@Req() req: any) {
+    const token = req.token;
+
+    const redisStore = await redis;
+    await redisStore.set(`blacklist_${token}`, 1);
+
+    return { success: true, message: 'Logout success' };
+  }
+
+  @Post('refreshToken')
+  async refreshToken(@Req() req, @Res() res) {
+    try {
+      const { refreshToken } = req.body;
+      const { userId } = JWT.verifyRefreshToken(refreshToken);
+
+      const redisStore = await redis;
+      const tokenFromRedis = await redisStore.get(`refreshToken_${userId}`);
+      if (!tokenFromRedis) {
+        throw new Error('Refresh token not found');
+      }
+
+      const accessToken = JWT.createAccessToken({
+        userId,
+      });
+
+      return res.status(HttpStatus.CREATED).json({
+        success: true,
+        data: {
+          accessToken,
+          refreshToken,
+        },
+        message: 'Refresh token successfully',
+      });
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Refresh token failed',
+        errors: error.message,
+      });
+    }
   }
 }
