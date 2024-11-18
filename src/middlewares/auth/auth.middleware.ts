@@ -10,12 +10,27 @@ export class AuthMiddleware implements NestMiddleware {
   async use(req: any, res: any, next: () => void) {
     const token = req.headers.authorization?.split(' ').slice(-1).join();
 
-    const decoded = JWT.verifyAccessToken(token);
+    let decoded;
+    try {
+      decoded = JWT.verifyAccessToken(token);
 
-    if (!decoded) {
+      if (!decoded) {
+        return res.status(HttpStatus.UNAUTHORIZED).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+    } catch (error) {
+      if (error.message?.includes('jwt expired')) {
+        return res.status(HttpStatus.GONE).json({
+          success: false,
+          message: 'Need to refresh token',
+        });
+      }
+
       return res.status(HttpStatus.UNAUTHORIZED).json({
         success: false,
-        message: 'Unauthorized',
+        message: 'Unauthorized! Please Login!',
       });
     }
 

@@ -5,7 +5,6 @@ import { RoleGuard } from 'src/guards/role/role.guard';
 @Controller('admin')
 export class AdminController {
   @Get('/profileAdmin')
-  // @SetMetadata('role', 'ADMIN')
   @UseGuards(new RoleGuard('ADMIN'))
   profileAdmin(@Res() res: Response) {
     return res.json({

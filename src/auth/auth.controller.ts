@@ -165,7 +165,7 @@ export class AuthController {
         userId,
       });
 
-      return res.status(HttpStatus.CREATED).json({
+      return res.status(HttpStatus.OK).json({
         success: true,
         data: {
           accessToken,
